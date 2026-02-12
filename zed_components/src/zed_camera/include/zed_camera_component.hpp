@@ -501,6 +501,7 @@ private:
   unsigned int mSensFwVersion;                 // Sensors FW version
   std::string mCameraName = "zed";             // Default camera name
   int mCamGrabFrameRate = 15;
+  double mGrabComputeCappingFps = 0.0;
   bool mAsyncImageRetrieval = false;
   int mImageValidityCheck = 1;
   std::string mSvoFilepath = "";
