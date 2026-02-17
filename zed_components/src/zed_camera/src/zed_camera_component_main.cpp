@@ -8332,7 +8332,7 @@ void ZedCamera::callback_updateDiagnostic(
     return;
   }
 
-  if (mPoseLocked) {
+  if (mPoseLocked && (mPoseLockCount > mCamGrabFrameRate)) {  // > 1 second
     stat.summary(
       diagnostic_msgs::msg::DiagnosticStatus::WARN,
       "Positional Tracking locked. Call the service 'reset_pos_tracking' to reset.");
