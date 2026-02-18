@@ -1,6 +1,12 @@
 LATEST CHANGES
 ==============
 
+2026-02-11
+----------
+- Added the parameter `general.grab_compute_capping_fps` to define a computation upper limit to the grab frequency. 
+  - This can be useful to get a known constant fixed rate or limit the computation load while keeping a short exposure time by setting a high camera capture framerate.
+  - If set to 0, the grab compute capping will be disabled and the ZED SDK will process data at the grab rate.
+
 v5.2.0
 ------
 - Removed the `zed_wrapper/urdf/include/materials.urdf.xacro` file and moved the material settings directly in the `zed_macro.urdf.xacro` file to avoid possible conflicts in multi-camera configurations. Thx @davesarmoury for the fix

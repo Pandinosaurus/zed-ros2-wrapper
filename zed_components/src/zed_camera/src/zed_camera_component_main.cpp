@@ -1271,11 +1271,14 @@ void ZedCamera::getGeneralParams()
   } else {
     sl_tools::getParam(
       shared_from_this(), "general.pub_frame_rate", mVdPubRate,
-      mVdPubRate, "", true, 0.1, static_cast<double>(mCamGrabFrameRate));
-    RCLCPP_INFO_STREAM(
-      get_logger(),
-      " * Publish framerate [Hz]:  " << mVdPubRate);
+      mVdPubRate, " * Publish framerate [Hz]:  ", true, 0.1,
+      static_cast<double>(mCamGrabFrameRate));
   }
+  sl_tools::getParam(
+    shared_from_this(), "general.grab_compute_capping_fps",
+    mGrabComputeCappingFps, mGrabComputeCappingFps,
+    " * Grab Compute Capping FPS: ", false, 0.0,
+    static_cast<double>(mCamGrabFrameRate));
 }
 
 void ZedCamera::getSvoParams()
@@ -2617,7 +2620,7 @@ bool ZedCamera::startCamera()
     RCLCPP_INFO(get_logger(), "=== CAMERA OPENING ===");
 
     mInitParams.camera_fps = mCamGrabFrameRate;
-    mInitParams.grab_compute_capping_fps = 0.0f; // Using multi-threading in the component
+    mInitParams.grab_compute_capping_fps = static_cast<float>(mGrabComputeCappingFps);
     mInitParams.camera_resolution = static_cast<sl::RESOLUTION>(mCamResol);
     mInitParams.async_image_retrieval = mAsyncImageRetrieval;
     mInitParams.enable_image_validity_check = mImageValidityCheck;
@@ -8329,7 +8332,7 @@ void ZedCamera::callback_updateDiagnostic(
     return;
   }
 
-  if (mPoseLocked) {
+  if (mPoseLocked && (mPoseLockCount > mCamGrabFrameRate)) {  // > 1 second
     stat.summary(
       diagnostic_msgs::msg::DiagnosticStatus::WARN,
       "Positional Tracking locked. Call the service 'reset_pos_tracking' to reset.");
@@ -8339,11 +8342,24 @@ void ZedCamera::callback_updateDiagnostic(
 
   if (mGrabStatus == sl::ERROR_CODE::SUCCESS || mGrabStatus == sl::ERROR_CODE::CORRUPTED_FRAME) {
     stat.addf("IPC Enabled", "%s", mUsingIPC ? "YES" : "NO");
-    stat.addf("Camera Grab rate", "%d Hz", mCamGrabFrameRate);
+
 
     double freq = 1. / mGrabPeriodMean_sec->getAvg();
-    double freq_perc = 100. * freq / mCamGrabFrameRate;
-    stat.addf("Data Capture", "Mean Frequency: %.1f Hz (%.1f%%)", freq, freq_perc);
+    double freq_perc = 0.0;
+    if (mGrabComputeCappingFps > 0.0 &&
+      mGrabComputeCappingFps < mCamGrabFrameRate)
+    {
+      stat.addf("Camera Grab rate -capped-", "%.1f Hz", mGrabComputeCappingFps);
+      freq_perc = 100. * freq / mGrabComputeCappingFps;
+      stat.addf(
+        "Data Capture -capped-", "%.1f Hz (%.1f%%)", freq, freq_perc);
+    } else {
+      stat.addf("Camera Grab rate", "%d Hz", mCamGrabFrameRate);
+      freq_perc = 100. * freq / mCamGrabFrameRate;
+      stat.addf(
+        "Data Capture", "Mean Frequency: %.1f Hz (%.1f%%)", freq,
+        freq_perc);
+    }
 
     double frame_proc_sec = mElabPeriodMean_sec->getAvg();
     double frame_grab_period = 1. / mCamGrabFrameRate;
