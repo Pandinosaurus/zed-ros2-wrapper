@@ -1,6 +1,21 @@
 LATEST CHANGES
 ==============
 
+v5.4
+----------
+- Fixed Disparity Map data (bad pixel value sign).
+- Changed disparity map publishing policy:
+
+  - The topic `~/disparity/disparity_image` of type `stereo_msgs/msg/disparity_image` is now obsolete.
+  
+  - Added two new topics:
+
+    - `~/disparity/map` of type `stereo_msgs/msg/disparity_image` containing the Disparity Map for depth processing. This replaces the obsolete `~/disparity/disparity_image` topic.
+      Use `ros2 run image_view disparity_view --ros-args -r image:=/zed/zed_node/disparity/disparity_image` to visualize this topic.
+    - `~/disparity/image` of type `sensor_msgs/msg/image` containing the Normalized Disparity Map as an image for visualization purposes. You can subscribe to this topic in RViz2.
+  
+
+
 v5.3
 ----------
 - Added voxel point cloud support. When `depth.voxel_point_cloud` is enabled, the point cloud topic publishes voxel-decimated data using ``retrieveVoxelMeasure()``. New parameters: ``depth.voxel_size_mm`` (voxel cell size in millimeters), ``depth.voxel_resolution_mode`` (``FIXED``, ``STEREO_UNCERTAINTY``, ``LINEAR``), and ``depth.voxel_resolution_scale``. All voxel parameters are dynamically reconfigurable.
