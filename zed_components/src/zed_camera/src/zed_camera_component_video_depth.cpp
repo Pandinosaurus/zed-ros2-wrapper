@@ -2863,16 +2863,36 @@ void ZedCamera::processPointCloud()
       sl::ERROR_CODE pc_err;
 #if (ZED_SDK_MAJOR_VERSION * 10 + ZED_SDK_MINOR_VERSION) >= 53
       if (mVoxelPointCloud) {
+        // Voxelized clouds have a dynamic point count, so the data is copied
+        // into the (re)sized message at publish time.
         pc_err = mZed->retrieveVoxelMeasure(
           mMatCloud, sl::MEASURE::XYZBGRA, sl::MEM::CPU, mVoxelParams);
       } else {
+        // Zero-copy: size the reusable message for the current resolution and
+        // bind the SDK matrix to its memory so retrieveMeasure writes the
+        // XYZBGRA cloud straight into mPcMsg.data (the SDK float4 layout
+        // matches x,y,z,rgb), avoiding a full-cloud memcpy and a duplicate
+        // CPU buffer at publish time.
+        if (prepareCloudMsg(mPcResol.width, mPcResol.height)) {
+          mMatCloud = sl::Mat(
+            mPcResol.width, mPcResol.height, sl::MAT_TYPE::F32_C4,
+            reinterpret_cast<sl::uchar1 *>(mPcMsg.data.data()),
+            mPcResol.width * sizeof(sl::float4), sl::MEM::CPU);
+        }
         pc_err = mZed->retrieveMeasure(
           mMatCloud, sl::MEASURE::XYZBGRA, sl::MEM::CPU, mPcResol);
       }
 #else
+      // Zero-copy retrieve into the reusable message buffer (see the
+      // SDK >= 5.3 branch above for details).
+      if (prepareCloudMsg(mPcResol.width, mPcResol.height)) {
+        mMatCloud = sl::Mat(
+          mPcResol.width, mPcResol.height, sl::MAT_TYPE::F32_C4,
+          reinterpret_cast<sl::uchar1 *>(mPcMsg.data.data()),
+          mPcResol.width * sizeof(sl::float4), sl::MEM::CPU);
+      }
       pc_err = mZed->retrieveMeasure(
-        mMatCloud, sl::MEASURE::XYZBGRA,
-        sl::MEM::CPU, mPcResol);
+        mMatCloud, sl::MEASURE::XYZBGRA, sl::MEM::CPU, mPcResol);
 #endif
       if (pc_err != sl::ERROR_CODE::SUCCESS) {
         RCLCPP_WARN_STREAM(
@@ -2924,6 +2944,33 @@ bool ZedCamera::isPointCloudSubscribed()
   return cloudSubCount > 0;
 }
 
+bool ZedCamera::prepareCloudMsg(size_t width, size_t height)
+{
+  if (mPcMsg.width == static_cast<uint32_t>(width) &&
+    mPcMsg.height == static_cast<uint32_t>(height))
+  {
+    return false;  // Already configured for this resolution
+  }
+
+  mPcMsg.header.frame_id = mPointCloudFrameId;
+
+  int val = 1;
+  mPcMsg.is_bigendian = !(*reinterpret_cast<char *>(&val) == 1);
+  mPcMsg.is_dense = false;
+
+  mPcMsg.width = width;
+  mPcMsg.height = height;
+
+  sensor_msgs::PointCloud2Modifier modifier(mPcMsg);
+  modifier.setPointCloud2Fields(
+    4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1,
+    sensor_msgs::msg::PointField::FLOAT32, "z", 1,
+    sensor_msgs::msg::PointField::FLOAT32, "rgb", 1,
+    sensor_msgs::msg::PointField::FLOAT32);
+
+  return true;
+}
+
 void ZedCamera::publishPointCloud()
 {
   sl_tools::StopWatch pcElabTimer(get_clock());
@@ -2957,36 +3004,18 @@ void ZedCamera::publishPointCloud()
   mLastTs_pc = stamp;
   // <--- Check timestamp
 
-  // Resize the reusable message buffer only when resolution changes
-  if (static_cast<int>(mPcMsg.width) != width ||
-    static_cast<int>(mPcMsg.height) != height)
-  {
-    mPcMsg.header.frame_id = mPointCloudFrameId;
-
-    int val = 1;
-    mPcMsg.is_bigendian = !(*reinterpret_cast<char *>(&val) == 1);
-    mPcMsg.is_dense = false;
-
-    mPcMsg.width = width;
-    mPcMsg.height = height;
-
-    sensor_msgs::PointCloud2Modifier modifier(mPcMsg);
-    modifier.setPointCloud2Fields(
-      4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1,
-      sensor_msgs::msg::PointField::FLOAT32, "z", 1,
-      sensor_msgs::msg::PointField::FLOAT32, "rgb", 1,
-      sensor_msgs::msg::PointField::FLOAT32);
+  if (mVoxelPointCloud) {
+    // Voxelized clouds have a dynamic point count: (re)size the reusable
+    // message and copy the data in.
+    prepareCloudMsg(width, height);
+    memcpy(
+      mPcMsg.data.data(), mMatCloud.getPtr<sl::float4>(),
+      static_cast<size_t>(ptsCount) * 4 * sizeof(float));
   }
+  // Standard path: the SDK already wrote the cloud straight into mPcMsg.data
+  // in processPointCloud() (zero-copy), so no copy is needed here.
 
   mPcMsg.header.stamp = stamp;
-
-  sl::Vector4<float> * cpu_cloud = mMatCloud.getPtr<sl::float4>();
-
-  // Data copy into reused buffer
-  float * ptCloudPtr = reinterpret_cast<float *>(&mPcMsg.data[0]);
-  memcpy(
-    ptCloudPtr, reinterpret_cast<float *>(cpu_cloud),
-    ptsCount * 4 * sizeof(float));
 
   // Pointcloud publishing
   DEBUG_PC(" * [publishPointCloud] Publishing POINT CLOUD message");

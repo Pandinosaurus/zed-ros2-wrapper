@@ -316,6 +316,9 @@ protected:
 
   void processPointCloud();
   bool isPointCloudSubscribed();
+  // Configures the reusable point cloud message (fields/size) for the given
+  // resolution. Returns true if the buffer was (re)allocated this call.
+  bool prepareCloudMsg(size_t width, size_t height);
   void publishPointCloud();
   void publishImuFrameAndTopic();
 
